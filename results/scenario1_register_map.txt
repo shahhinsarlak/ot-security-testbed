@@ -1,0 +1,69 @@
+
+============================================================
+  REGISTER MAP SUMMARY
+  Target: 10.0.0.2:5502  |  2026-04-14T16:33:38
+============================================================
+
+  COILS (FC01 Read Coils)
+  ----------------------------------------
+  Address    Value    State
+  ----------------------------------------
+  0          True     CLOSED
+  1          True     CLOSED
+  2          False    OPEN
+  3          False    OPEN
+  4          False    OPEN
+  5          False    OPEN
+  6          False    OPEN
+  7          False    OPEN
+  8          False    OPEN
+  9          False    OPEN
+
+  HOLDING REGISTERS (FC03 Read Holding Registers)
+  ----------------------------------------
+  Address    Value
+  ----------------------------------------
+  30000      300      [line-650632.kW]
+  30001      185      [line-651634.kW]
+  30002      220      [telemetry-2]
+  30003      175      [telemetry-3]
+  30004      310      [telemetry-4]
+  30005      400      [telemetry-5]
+  30006      130      [telemetry-6]
+  30007      290      [telemetry-7]
+  30008      500      [telemetry-8]
+  30009      155      [telemetry-9]
+  30010      445      [telemetry-10]
+  30011      0        [telemetry-11]
+  30012      0        [telemetry-12]
+  30013      0        [telemetry-13]
+  30014      0        [telemetry-14]
+  30015      0        [telemetry-15]
+
+  DISCRETE INPUTS (FC02 Read Discrete Inputs)
+  ----------------------------------------
+  DI 0: False
+  DI 1: False
+  DI 2: False
+  DI 3: False
+  DI 4: False
+  DI 5: False
+  DI 6: False
+  DI 7: False
+  DI 8: False
+  DI 9: False
+
+  INPUT REGISTERS (FC04 Read Input Registers)
+  ----------------------------------------
+  IR 0: 0
+  IR 1: 0
+  IR 2: 0
+  IR 3: 0
+  IR 4: 0
+  IR 5: 0
+  IR 6: 0
+  IR 7: 0
+  IR 8: 0
+  IR 9: 0
+
+============================================================

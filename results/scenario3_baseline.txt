@@ -1,0 +1,6 @@
+Poll 1: 22.1ms
+Poll 2: 22.3ms
+Poll 3: 22.4ms
+Poll 4: 22.2ms
+Poll 5: 22.8ms
+Avg baseline: 22.4ms

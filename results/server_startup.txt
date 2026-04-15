@@ -1,0 +1,57 @@
+============================================================
+  OT Security Testbed — Modbus Server
+  Listening: 0.0.0.0:5502  (device_id=1)
+============================================================
+  Coil 0  [line-650632.closed]  = True  (CLOSED)
+  Coil 1  [line-651634.closed]  = True  (CLOSED)
+  HR 30000 [line-650632.kW]     = 300
+  HR 30001 [line-651634.kW]     = 185
+  HR 30002 [telemetry-2]       = 220
+  HR 30003 [telemetry-3]       = 175
+  HR 30004 [telemetry-4]       = 310
+  HR 30005 [telemetry-5]       = 400
+  HR 30006 [telemetry-6]       = 130
+  HR 30007 [telemetry-7]       = 290
+  HR 30008 [telemetry-8]       = 500
+  HR 30009 [telemetry-9]       = 155
+  HR 30010 [telemetry-10]       = 445
+============================================================
+  Writes will be logged below.
+============================================================
+2026-04-14T16:33:34 [INFO] Starting Modbus TCP server on 0.0.0.0:5502 ...
+2026-04-14T16:33:34 [INFO] Server listening.
+2026-04-14T16:33:39 [INFO] WRITE | block=coil addr=1 value=False | 2026-04-14T16:33:39.053
+2026-04-14T16:33:39 [INFO] WRITE | block=coil addr=1 value=True | 2026-04-14T16:33:39.685
+s with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under certain conditions; type 'mbpoll -w' for details.
+
+Protocol configuration: Modbus TCP
+Slave configuration...: address = [1]
+                        start reference = 1, count = 2
+Communication.........: 10.0.0.2, port 5502, t/o 1.00 s, poll rate 1000 ms
+Data type.............: discrete output (coil)
+
+-- Polling slave 1...
+[1]: 	1
+[2]: 	1
+
+
+--- mbpoll HR confirmation ---
+mbpoll 1.0-0 - FieldTalk(tm) Modbus(R) Master Simulator
+Copyright © 2015-2019 Pascal JEAN, https://github.com/epsilonrt/mbpoll
+This program comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under certain conditions; type 'mbpoll -w' for details.
+
+Protocol configuration: Modbus TCP
+Slave configuration...: address = [1]
+                        start reference = 30001, count = 3
+Communication.........: 10.0.0.2, port 5502, t/o 1.00 s, poll rate 1000 ms
+Data type.............: 16-bit register, output (holding) register table
+
+-- Polling slave 1...
+[30001]: 	300
+[30002]: 	185
+[30003]: 	220
+

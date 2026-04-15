@@ -1,0 +1,15 @@
+mbpoll 1.0-0 - FieldTalk(tm) Modbus(R) Master Simulator
+Copyright © 2015-2019 Pascal JEAN, https://github.com/epsilonrt/mbpoll
+This program comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under certain conditions; type 'mbpoll -w' for details.
+
+Protocol configuration: Modbus TCP
+Slave configuration...: address = [1]
+                        start reference = 30001, count = 1
+Communication.........: 10.0.0.2, port 5502, t/o 1.00 s, poll rate 1000 ms
+Data type.............: 16-bit register, output (holding) register table
+
+-- Polling slave 1...
+[30001]: 	300
+
