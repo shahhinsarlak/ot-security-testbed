@@ -63,10 +63,10 @@ Each scenario has a matching playbook in `playbooks/` with a protocol-level brea
 
 ```bash
 sudo apt update
-sudo apt install -y mininet openvswitch-switch mbpoll python3-pip
+sudo apt install -y mininet openvswitch-switch mbpoll python3-pip xterm x11-xserver-utils
 ```
 
-> **WSL 2 users:** Ubuntu 24.04 LTS on WSL 2 is confirmed working. Start OVS manually before each session: `sudo service openvswitch-switch start`
+> **WSL 2 users:** Ubuntu 24.04 LTS on WSL 2 is confirmed working. Start OVS manually before each session: `sudo service openvswitch-switch start`. Also set your display before running Mininet: `export DISPLAY=:0`
 
 ### Python
 
