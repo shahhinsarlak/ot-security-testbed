@@ -232,6 +232,17 @@ See `mitigations/README.md` for a full explanation of each approach, the exact p
 
 ---
 
+## Real-world attack vectors
+
+How would these attacks happen outside of a lab? See [`docs/real-world-attack-vectors.md`](docs/real-world-attack-vectors.md) for a full breakdown covering:
+
+- Why physical access to the RTU is rarely required
+- The five routes attackers use to reach OT networks (IT pivot, VPN, internet-exposed devices, supply chain, physical)
+- How each scenario maps to a real attack stage
+- Real incidents: Ukraine 2015 BlackEnergy, Oldsmar water plant, Industroyer/Crashoverride
+
+---
+
 ## Playbooks
 
 Detailed write-ups are in `playbooks/`:
