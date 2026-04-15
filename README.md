@@ -196,6 +196,42 @@ Full output is in `results/`.
 
 ---
 
+## Mitigations
+
+The `mitigations/` directory contains working defenses against each attack scenario. Each mitigation runs the attack twice — once without protection to confirm it works, then again with the mitigation applied to confirm it is blocked or limited.
+
+| Mitigation | File | Technique | Stops |
+|---|---|---|---|
+| IP Allowlisting | `run_mitigations_demo.py` | iptables on h2 | Unauthorized hosts reaching the RTU |
+| Function Code Filter | `mitigation2_fc_filter.py` | Modbus proxy that inspects FC byte | Write commands (FC05/06/0F/10) |
+| Rate Limiting | `mitigation3_rate_limit.py` | Sliding-window proxy per source IP | DoS floods exceeding N req/s |
+
+**Run all three demos end-to-end:**
+
+```bash
+sudo mn -c
+sudo python3 mitigations/run_mitigations_demo.py 2>&1 | tee results/mitigations/full_run.txt
+```
+
+**Run the proxies standalone (no Mininet):**
+
+```bash
+# Terminal 1 — RTU
+python3 servers/modbus_server.py
+
+# Terminal 2 — pick one proxy
+python3 mitigations/mitigation2_fc_filter.py --listen-port 5503 --upstream 127.0.0.1:5502
+# or
+python3 mitigations/mitigation3_rate_limit.py --listen-port 5503 --upstream 127.0.0.1:5502 --max-rps 20
+
+# Terminal 3 — attack through the proxy
+python3 attacks/scenario2_command_injection.py --target 127.0.0.1 --port 5503
+```
+
+See `mitigations/README.md` for a full explanation of each approach, the exact proxy output to expect, and real-world product equivalents.
+
+---
+
 ## Playbooks
 
 Detailed write-ups are in `playbooks/`:
@@ -212,7 +248,7 @@ Each playbook covers: protocol mechanics, MITRE ATT&CK mapping, exact commands r
 
 ```
 ot-security-testbed/
-├── run_scenarios.py              Automated end-to-end runner
+├── run_scenarios.py              Automated end-to-end runner (all 3 attacks)
 ├── topology/
 │   └── mininet_topo.py           Mininet topology (interactive CLI mode)
 ├── servers/
@@ -221,6 +257,11 @@ ot-security-testbed/
 │   ├── scenario1_recon.py        FC01/02/03/04 register enumeration
 │   ├── scenario2_command_injection.py  FC05 coil write (breaker trip)
 │   └── scenario3_dos.py          Async FC03 flood with poll monitor
+├── mitigations/
+│   ├── README.md                 Explanation of each mitigation + real-world equivalents
+│   ├── mitigation2_fc_filter.py  Proxy: blocks write FCs, allows reads
+│   ├── mitigation3_rate_limit.py Proxy: per-IP sliding window rate limiter
+│   └── run_mitigations_demo.py   Mininet demo: all 3 mitigations before/after
 ├── playbooks/
 │   ├── scenario1_playbook.md
 │   ├── scenario2_playbook.md
