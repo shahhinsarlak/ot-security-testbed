@@ -1,0 +1,39 @@
+======================================================================
+  OT Security Testbed — Scenario 3: Denial of Service
+  Target: 10.0.0.2:5502  Duration: 30s
+  Start:  2026-04-14T16:33:58
+======================================================================
+  Starting flood and legitimate poll monitor...
+
+[*] Measuring 3-sample baseline (pre-flood)...
+    Pre-flood poll 1: 0.5ms  (ok)
+    Pre-flood poll 2: 0.4ms  (ok)
+    Pre-flood poll 3: 0.3ms  (ok)
+    Baseline avg: 0.4ms
+
+  [  8.0s / 30s]  Flood:   19963 sent     2491 req/s  |  Poll: 5/5 ok (100%)  avg 0ms
+  [ 13.0s / 30s]  Flood:   39833 sent     3059 req/s  |  Poll: 7/7 ok (100%)  avg 0ms
+  [ 18.0s / 30s]  Flood:   59589 sent     3305 req/s  |  Poll: 10/10 ok (100%)  avg 0ms
+  [ 23.0s / 30s]  Flood:   79990 sent     3472 req/s  |  Poll: 12/12 ok (100%)  avg 0ms
+  [ 28.0s / 30s]  Flood:   99843 sent     3560 req/s  |  Poll: 15/15 ok (100%)  avg 0ms
+
+======================================================================
+  FINAL RESULTS
+======================================================================
+  Duration:                  33.1s
+  Total flood requests sent: 119934
+  Flood errors:              0
+  Peak request rate:         3623 req/s
+
+  Legitimate polls sent:     17
+  Polls succeeded:           17
+  Polls failed:              0
+  Poll success rate:         100.0%
+
+  Baseline response avg:     0.4ms
+  During-attack avg:         0.3ms
+  Response degradation:      -0.1ms
+  First poll failure at:     No failures observed during test
+======================================================================
+  End: 2026-04-14T16:34:31
+======================================================================
