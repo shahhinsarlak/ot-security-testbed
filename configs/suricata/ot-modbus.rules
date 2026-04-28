@@ -1,0 +1,65 @@
+# Suricata IDS rules -- Goulburn Water Treatment Plant
+# AquaOps Utilities | 31261 Internetworking Capstone (UTS)
+#
+# Monitor Modbus TCP traffic on plc1 (10.0.0.2:5502).
+# Deploy on hist01 (10.0.1.2) configured as a mirror port.
+#
+# SID range: 9000010 - 9000012
+#
+# Reference: MITRE ATT&CK for ICS
+#   T0861  Point & Tag Identification
+#   T0855  Unauthorized Command Message
+#   T0813  Denial of Control
+#   T0829  Loss of View
+
+
+# SID 9000010 -- Modbus TCP connection to PLC-PUMP1
+# Detects any TCP connection to the Modbus port on plc1.
+# Helps profile who is polling the pump controller.
+# MITRE: T0861 (Point & Tag Identification)
+alert tcp any any -> 10.0.0.2 5502 (
+    msg:"AquaOps OT - Modbus TCP connection to PLC-PUMP1 (pump1-valve target)";
+    flow:to_server,established;
+    sid:9000010;
+    rev:2;
+    classtype:policy-violation;
+    metadata:affected_product Modbus_TCP, attack_target PLC-PUMP1,
+             deployment OT_Zone, signature_severity Informational,
+             tag pump1-valve;
+)
+
+
+# SID 9000011 -- Modbus write function code detected (FC05/FC06/FC15/FC16)
+# Detects unauthenticated write commands that could trip pump1-valve.
+# The FC05 byte (0x05) appears at offset 7 in the Modbus TCP stream.
+# MITRE: T0855 (Unauthorized Command Message)
+alert tcp any any -> 10.0.0.2 5502 (
+    msg:"AquaOps OT - Modbus write FC detected on PLC-PUMP1 (pump1-valve.closed at risk)";
+    flow:to_server,established;
+    content:"|00 00|";  offset 2; depth 2;    # Protocol ID = 0x0000 (Modbus)
+    byte_test:1,&,0x80,7,relative,little;     # FC has write bit set (0x05..0x10)
+    threshold:type limit, track by_src, count 1, seconds 60;
+    sid:9000011;
+    rev:2;
+    classtype:attempted-admin;
+    metadata:affected_product Modbus_TCP, attack_target PLC-PUMP1,
+             deployment OT_Zone, signature_severity Major,
+             tag pump1-valve;
+)
+
+
+# SID 9000012 -- Modbus request flood (potential DoS against PLC-PUMP1)
+# Detects high-volume FC03 read requests that could saturate plc1's
+# TCP stack and prevent SCADA-01 from polling pump flow registers.
+# MITRE: T0813 (Denial of Control), T0829 (Loss of View)
+alert tcp any any -> 10.0.0.2 5502 (
+    msg:"AquaOps OT - Modbus request flood detected on PLC-PUMP1 (pump1-flow.Lps monitoring at risk)";
+    flow:to_server,established;
+    threshold:type threshold, track by_src, count 100, seconds 1;
+    sid:9000012;
+    rev:2;
+    classtype:attempted-dos;
+    metadata:affected_product Modbus_TCP, attack_target PLC-PUMP1,
+             deployment OT_Zone, signature_severity Critical,
+             tag pump1-flow;
+)
