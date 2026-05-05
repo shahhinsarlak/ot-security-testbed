@@ -1,6 +1,6 @@
 # Scenario 2 — Modbus Command Injection (Breaker Trip)
 
-**Testbed:** patsec/ot-sim layout | **Date:** 2026-04-14 | **Owner:** Bailey Taylor and Shahhin Sarlak
+**Testbed:** UTS OT Security Testbed (custom Mininet topology) | **Date:** 2026-04-14 | **Owner:** Bailey Taylor and Shahhin Sarlak
 **Platform:** Ubuntu 24.04 LTS | Mininet 2.3 | pymodbus 3.12.1 | mbpoll 1.4.11
 
 ---

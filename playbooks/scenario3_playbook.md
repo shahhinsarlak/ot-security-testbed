@@ -1,6 +1,6 @@
 # Scenario 3 — Modbus TCP Denial of Service (FC3 Flood)
 
-**Testbed:** patsec/ot-sim layout | **Date:** 2026-04-14 | **Owner:** Daniel Sleiman and Johnson Huynh
+**Testbed:** UTS OT Security Testbed (custom Mininet topology) | **Date:** 2026-04-14 | **Owner:** Daniel Sleiman and Johnson Huynh
 **Platform:** Ubuntu 24.04 LTS | Mininet 2.3 | pymodbus 3.12.1 | mbpoll 1.4.11
 
 ---

@@ -132,4 +132,4 @@
 
 ============================================================
 
-[+] Register map saved to: /mnt/c/Users/0blac/ot-security-testbed/results/scenario1_register_map.txt
+[+] Register map saved to: <repo-root>/results/scenario1_register_map.txt
