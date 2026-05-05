@@ -23,35 +23,7 @@ Three self-contained attack scenarios executed from a virtual attacker workstati
 
 ## Topology
 
-```
-  IT Zone (Office Network)         OT Zone (Plant Floor)
-  10.0.0.0/24 -- SWIT-OFFICE      10.0.0.0/24 -- SWIT-PLANT
-  +----------+                     +-----------+
-  | ews01    |                     | plc1      |
-  | EWS-01   |                     | PLC-PUMP1 |
-  | 10.0.0.1 |                     | 10.0.0.2  |  <-- Modbus TCP port 5502
-  +----------+                     +-----------+
-  | ews02    |                     | plc2      |
-  | EWS-02   |                     | PLC-PUMP2 |
-  | 10.0.0.3 |                     | 10.0.0.5  |  (idle)
-  +----------+                     +-----------+
-  | ews03    |
-  | EWS-03   |
-  | 10.0.0.4 |
-  +----+-----+
-       |  s1 (SWIT-OFFICE)        s2 (SWIT-PLANT)
-       +------ peer trunk ---------+
-              |                   |
-              r1 (ROUT-BOUNDARY)
-              10.0.0.254 / 10.0.1.254
-              |
-       Control Room (10.0.1.0/24)
-       +----------+   +---------+
-       | scada01  |   | hist01  |
-       | SCADA-01 |   | HIST-01 |
-       | 10.0.1.1 |   |10.0.1.2 |
-       +----------+   +---------+
-```
+<img width="1408" height="768" alt="topology" src="https://github.com/user-attachments/assets/0ea030eb-8372-4ef5-9aa1-f7702a99d960" />
 
 ### Host table
 
