@@ -1,7 +1,8 @@
 # Scenario 1 — Modbus Register Enumeration (Reconnaissance)
 
-**Testbed:** UTS OT Security Testbed (custom Mininet topology) | **Date:** 2026-04-14 | **Owner:** Oscar Reinitz
+**Testbed:** Goulburn WTP — AquaOps Utilities (UTS 31261 Internetworking Capstone) | **Date:** 2026-04-14 | **Owner:** Oscar Reinitz
 **Platform:** Ubuntu 24.04 LTS | Mininet 2.3 | pymodbus 3.12.1 | mbpoll 1.4.11
+**Attacker:** ews01 (EWS-01, 10.0.0.1) | **Target:** plc1 (PLC-PUMP1, 10.0.0.2, port 5502)
 
 ---
 
@@ -36,7 +37,7 @@ The reconnaissance output directly feeds T0855 (Unauthorized Command Message) in
 
 ## 3. Exact commands run
 
-Run from h1 (10.0.0.1) against h2 (10.0.0.2):
+Run from ews01 (10.0.0.1) against plc1 (10.0.0.2):
 
 ```
 python3 attacks/scenario1_recon.py --target 10.0.0.2 --port 5502
@@ -87,10 +88,10 @@ This scenario is read-only — no register values change. Full discovered map:
 
 | Address | Value | Tag |
 |---|---|---|
-| Coil 0 | True (CLOSED) | line-650632.closed |
-| Coil 1 | True (CLOSED) | line-651634.closed |
-| HR 30000 | 300 | line-650632.kW |
-| HR 30001 | 185 | line-651634.kW |
+| Coil 0 | True (CLOSED) | pump1-valve.closed |
+| Coil 1 | True (CLOSED) | pump2-valve.closed |
+| HR 30000 | 300 | pump1-flow.Lps |
+| HR 30001 | 185 | pump2-flow.Lps |
 | HR 30002 | 220 | telemetry-2 |
 | HR 30003 | 175 | telemetry-3 |
 | HR 30004 | 310 | telemetry-4 |
@@ -106,24 +107,24 @@ Discrete inputs and input registers: all zeros. The server does not expose these
 
 ---
 
-## 5. What this would mean in a real substation
+## 5. What this would mean in a real water treatment plant
 
-An attacker sitting on the OT VLAN (or having crossed the IT/OT boundary) can enumerate every data point the RTU exposes in under two seconds. With coil 0 showing CLOSED and HR 30000 showing 300 kW, they know:
+An attacker sitting on the OT network (or having crossed the IT/OT boundary) can enumerate every data point the PLC exposes in under two seconds. With coil 0 showing CLOSED and HR 30000 showing 300 Lps, they know:
 
-- Which feeder circuits are live
-- Approximate load on each feeder
-- Which coil addresses to target for circuit trip commands
-- The telemetry range (30000-30010) to monitor for load-shedding thresholds
+- Which pump valves are active
+- Flow rates on each pump line
+- Which coil addresses to target for valve trip commands
+- The telemetry range (30000-30010) to monitor for flow thresholds
 
-In a real Modbus deployment this data is sufficient to plan a targeted attack: identify the highest-load breaker, write a trip command to its coil during peak demand, and maximise the impact.
+In a real Modbus deployment this data is sufficient to plan a targeted attack: identify the highest-flow pump, write a trip command to its valve coil during peak demand, and maximise the impact. In a water treatment context, interrupting pump flow can halt chemical dosing and allow untreated water into the supply network.
 
-The Modbus protocol has no concept of "read-only to untrusted hosts." Every register the RTU exposes is readable by anyone on the segment.
+The Modbus protocol has no concept of "read-only to untrusted hosts." Every register the PLC exposes is readable by anyone on the segment.
 
 ---
 
 ## 6. Recommended mitigations
 
-1. **Network segmentation with default-deny ACLs.** Place RTUs behind a data diode or unidirectional gateway. Only authorised SCADA host IPs (h3 in this topology, 10.0.1.1) should be able to reach port 5502. Implement on the OT switch using ACLs or a purpose-built industrial firewall (e.g., Tofino, Claroty guard). This stops reconnaissance from any host that does not have explicit permit rules.
+1. **Network segmentation with default-deny ACLs.** Place PLCs behind a data diode or unidirectional gateway. Only authorised SCADA host IPs (scada01 in this topology, 10.0.1.1) should be able to reach port 5502. Implement on the OT switch using ACLs or a purpose-built industrial firewall (e.g., Tofino, Claroty guard). This stops reconnaissance from any host that does not have explicit permit rules.
 
 2. **Modbus application-layer firewall (deep packet inspection).** Deploy a proxy such as Belden Tofino or a Snort/Suricata IDS with Modbus preprocessor. Configure read-only rules: allow FC01, FC02, FC03, FC04 from SCADA hosts only, block all FC05, FC06, FC15, FC16 from any source outside the engineering workstation MAC/IP. This lets telemetry polling continue but blocks command writes from unknown sources.
 
@@ -136,7 +137,7 @@ The Modbus protocol has no concept of "read-only to untrusted hosts." Every regi
 **Suricata rule — Modbus coil sweep:**
 
 ```
-alert tcp any any -> 10.0.0.2 5502 (
+alert tcp !10.0.1.1 any -> 10.0.0.2 5502 (
   msg:"MODBUS FC01 Coil Read from non-SCADA host";
   flow:to_server,established;
   content:"|00 00 00 06|";
@@ -158,7 +159,7 @@ alert tcp !10.0.1.1 any -> 10.0.0.2 5502 (
 )
 ```
 
-**SCADA alert:** If the HMI (h3) polls on a 1-second cycle, a second Modbus session from a different source IP should trigger an operator alert within one polling cycle.
+**SCADA alert:** If scada01 (10.0.1.1) polls on a 1-second cycle, a second Modbus session from a different source IP should trigger an operator alert within one polling cycle.
 
 ---
 

@@ -1,4 +1,4 @@
-# OT Security Testbed — CLAUDE.md
+# Goulburn Water Treatment Plant — OT Security Testbed — CLAUDE.md
 
 Single source of truth. Someone unfamiliar with this project should be able to get it running in under 20 minutes using only this file.
 
@@ -6,12 +6,12 @@ Single source of truth. Someone unfamiliar with this project should be able to g
 
 ## Project overview
 
-UTS capstone project demonstrating three Modbus TCP attack scenarios against a simulated OT network. The testbed uses Mininet to create a network of virtual hosts representing a simplified substation SCADA environment. Attacks are executed from a simulated attacker host and target a pymodbus-based RTU server.
+UTS 31261 Internetworking Capstone project demonstrating three Modbus TCP attack scenarios against a simulated water treatment plant OT network. The testbed uses Mininet to create virtual hosts representing the Goulburn Water Treatment Plant operated by AquaOps Utilities. Attacks are executed from a simulated engineer workstation and target a pymodbus-based PLC server.
 
 Three scenarios:
 1. Passive reconnaissance — enumerate all Modbus registers without authentication
-2. Command injection — send unauthenticated FC5 write to trip a virtual breaker
-3. Denial of service — flood FC3 reads to blind the SCADA polling client
+2. Command injection — send unauthenticated FC5 write to trip the pump inlet valve (pump1-valve.closed)
+3. Denial of service — threaded FC03 flood (300 threads, 150 registers each) to saturate plc1
 
 ---
 
@@ -40,6 +40,35 @@ Three scenarios:
 
 ---
 
+## Topology
+
+| Zone | Host | Name | IP | Role |
+|------|------|------|----|------|
+| IT Zone | ews01 | EWS-01 | 10.0.0.1 | Engineer workstation / primary attacker |
+| IT Zone | ews02 | EWS-02 | 10.0.0.3 | Compromised laptop (Scenario 3 attacker 2) |
+| IT Zone | ews03 | EWS-03 | 10.0.0.4 | Compromised laptop (Scenario 3 attacker 3) |
+| OT Zone | plc1 | PLC-PUMP1 | 10.0.0.2 | Modbus TCP server, port 5502, primary target |
+| OT Zone | plc2 | PLC-PUMP2 | 10.0.0.5 | Secondary PLC (idle by default) |
+| Control Room | scada01 | SCADA-01 | 10.0.1.1 | SCADA polling client |
+| Control Room | hist01 | HIST-01 | 10.0.1.2 | Data logger / Suricata IDS mirror port |
+| Infrastructure | r1 | ROUT-BOUNDARY | 10.0.0.254 / 10.0.1.254 | IP router |
+| Infrastructure | s1 | SWIT-OFFICE | — | OVS switch, IT zone |
+| Infrastructure | s2 | SWIT-PLANT | — | OVS switch, OT zone |
+
+---
+
+## Register map (plc1 / PLC-PUMP1)
+
+| Address | Type | Tag | Initial value |
+|---|---|---|---|
+| Coil 0 | Coil (FC01/FC05) | `pump1-valve.closed` | `True` (CLOSED) |
+| Coil 1 | Coil (FC01/FC05) | `pump2-valve.closed` | `True` (CLOSED) |
+| HR 30000 | Holding Register (FC03) | `pump1-flow.Lps` | 300 (litres/sec) |
+| HR 30001 | Holding Register (FC03) | `pump2-flow.Lps` | 185 (litres/sec) |
+| HR 30002–30010 | Holding Register (FC03) | Simulated telemetry | Various |
+
+---
+
 ## Directory structure
 
 ```
@@ -49,11 +78,19 @@ ot-security-testbed/
   topology/
     mininet_topo.py          — interactive topology (use for manual testing with CLI)
   servers/
-    modbus_server.py         — pymodbus 3.12 async Modbus TCP server, port 5502
+    modbus_server.py         — pymodbus 3.12 async Modbus TCP server on plc1, port 5502
   attacks/
     scenario1_recon.py       — FC01/02/03/04 register enumeration
-    scenario2_command_injection.py  — FC05 coil write (breaker trip)
-    scenario3_dos.py         — async FC03 flood + legitimate poll monitor thread
+    scenario2_command_injection.py  — FC05 coil write (pump valve trip)
+    scenario3_dos_flood.py   — threaded FC03 flood (300 threads, 150 registers each)
+  mitigations/
+    mitigation1_ip_allowlist.py — iptables allowlist on plc1
+    mitigation2_fc_filter.py    — proxy: blocks write FCs, allows reads
+    mitigation3_rate_limit.py   — proxy: per-IP sliding window rate limiter
+    run_mitigations_demo.py     — Mininet demo: all 3 mitigations before/after
+  configs/
+    suricata/
+      ot-modbus.rules        — Suricata IDS rules for plc1 monitoring
   playbooks/
     scenario1_playbook.md    — full write-up: protocol, MITRE, commands, numbers, mitigations
     scenario2_playbook.md    — same structure for command injection
@@ -101,13 +138,14 @@ sudo python3 run_scenarios.py 2>&1 | tee results/full_run.txt
 ```
 
 This will:
-- Build the Mininet topology (h1-h5, s1-s2, r1)
-- Verify h1↔h2 and h3↔h2 connectivity
-- Start the Modbus server on h2 (port 5502)
+- Build the Mininet topology (ews01-03, plc1-2, scada01, hist01, s1, s2, r1)
+- Apply OVS fail-mode and flows
+- Verify ews01↔plc1 and scada01↔plc1 connectivity
+- Start the Modbus server on plc1 (port 5502)
 - Confirm server with mbpoll
-- Run scenario 1 from h1
-- Run scenario 2 from h1, reset coil 0
-- Run 5-poll baseline, then scenario 3 for 30 seconds
+- Run scenario 1 from ews01
+- Run scenario 2 from ews01, reset pump1-valve to CLOSED
+- Run 5-poll baseline, then scenario 3 from ews01 + ews02 + ews03 simultaneously for 30 seconds
 - Save all results to results/
 - Stop the network
 
@@ -122,15 +160,15 @@ sudo python3 topology/mininet_topo.py
 This opens the Mininet CLI. From the CLI you can run:
 
 ```
-mininet> h2 python3 $REPO/servers/modbus_server.py &
-mininet> h1 python3 $REPO/attacks/scenario1_recon.py --target 10.0.0.2
+mininet> plc1 python3 $REPO/servers/modbus_server.py &
+mininet> ews01 python3 $REPO/attacks/scenario1_recon.py --target 10.0.0.2
 ```
 
 ---
 
 ## How to run each attack scenario manually
 
-All commands run from h1 (10.0.0.1) in the Mininet CLI or via `h1.cmd()` in the runner.
+All commands run from ews01 (10.0.0.1) in the Mininet CLI.
 
 **Scenario 1 — Reconnaissance:**
 
@@ -150,28 +188,27 @@ python3 attacks/scenario2_command_injection.py --target 10.0.0.2 --port 5502
 # Post-attack confirmation
 mbpoll -1 -a 1 -t 4 -r 30001 -c 1 10.0.0.2 -p 5502
 
-# Reset coil 0 back to CLOSED
+# Reset pump1-valve back to CLOSED
 python3 -c "
 from pymodbus.client import ModbusTcpClient
 c = ModbusTcpClient('10.0.0.2', port=5502)
 c.connect()
 c.write_coil(0, True, device_id=1)
-print('Coil 0 reset to CLOSED')
+print('pump1-valve reset to CLOSED')
 c.close()
 "
 ```
 
-**Scenario 3 — DoS:**
+**Scenario 3 — DoS Flood:**
 
 ```bash
-# 5-poll baseline (run first)
-for i in 1 2 3 4 5; do
-    mbpoll -1 -a 1 -t 4 -r 30001 -c 1 10.0.0.2 -p 5502
-    sleep 2
-done
+# From ews01 alone
+python3 attacks/scenario3_dos_flood.py --target 10.0.0.2 --port 5502 --threads 300 --duration 30
 
-# Flood
-python3 attacks/scenario3_dos.py --target 10.0.0.2 --port 5502 --duration 30
+# Distributed (run simultaneously from ews01, ews02, ews03):
+mininet> ews01 python3 attacks/scenario3_dos_flood.py --threads 100 --duration 30 &
+mininet> ews02 python3 attacks/scenario3_dos_flood.py --threads 100 --duration 30 &
+mininet> ews03 python3 attacks/scenario3_dos_flood.py --threads 100 --duration 30
 ```
 
 ---
@@ -184,20 +221,22 @@ python3 attacks/scenario3_dos.py --target 10.0.0.2 --port 5502 --duration 30
 | `slave=1` keyword argument rejected by client calls | Use `device_id=1` in all `read_coils`, `write_coil`, `read_holding_registers` calls. |
 | pymodbus 3.12 block address offset (+1) | `ModbusSequentialDataBlock(0, [False, True, True, ...])` — add a dummy element at index 0. For HR block: `ModbusSequentialDataBlock(30000, [0, 300, 185, ...])`. The FC request address N maps to `values[N - start + 1]`. |
 | HR client address in pymodbus 3.12 | Use full Modbus address: `read_holding_registers(30000, count=1)`. Do NOT subtract 30000. |
-| `await client.close()` TypeError in scenario3 | `AsyncModbusTcpClient.close()` is synchronous. Remove `await`. |
-| Server not binding when started via `h2.cmd("... &")` | Use `h2.popen(["python3", "server.py"], ...)` instead. The `&` inside `cmd()` doesn't reliably detach the process. |
+| Server not binding when started via `plc1.cmd("... &")` | Use `plc1.popen(["python3", "server.py"], ...)` instead. The `&` inside `cmd()` doesn't reliably detach the process. |
 | OVS bridges left over from failed Mininet runs | Run `sudo mn -c` before every run. |
 | mbpoll coil address is 1-based | mbpoll `-r 1` reads coil 0 (FC01 address 0). mbpoll `-r 30001` reads HR 30000 (FC03 address 30000). |
+| Hosts cannot ping each other | Run OVS fix manually: `sudo ovs-vsctl set-fail-mode s1 standalone && sudo ovs-ofctl add-flow s1 action=normal` (same for s2). |
 
 ---
 
-## Completed so far (as of 2026-04-14)
+## Completed so far (as of 2026-04-28)
 
-- Full Mininet topology with IT/OT segmentation and router
-- pymodbus 3.12 Modbus TCP server on h2 with coils and holding registers
+- Full Mininet topology: ews01-03, plc1-2, scada01, hist01, s1, s2, r1 (Goulburn WTP / AquaOps)
+- pymodbus 3.12 Modbus TCP server on plc1 with pump valve coils and flow telemetry registers
 - Scenario 1 (reconnaissance): complete, output captured
-- Scenario 2 (command injection): complete, breaker trip confirmed, reset confirmed
-- Scenario 3 (DoS): complete, 119,934 requests at 3,623 req/s, no poll failures in simulation
+- Scenario 2 (command injection): complete, pump1-valve trip confirmed, reset confirmed
+- Scenario 3 (DoS): threaded flood with 300 threads, 150 registers each — distributed from ews01/02/03
+- Three working mitigations with before/after demos (IP allowlist, FC filter, rate limiter)
+- Suricata IDS rules in configs/suricata/ot-modbus.rules
 - Three playbooks with real numbers
 - Session log
 - Automated runner script
@@ -206,21 +245,20 @@ python3 attacks/scenario3_dos.py --target 10.0.0.2 --port 5502 --duration 30
 
 ## Still to do
 
-- Add SCADA HMI script on h3 that polls at 1s intervals (to show DoS competition in real time)
-- Wireshark/tshark capture during scenario 2 for the A0 poster packet diagram
-- Test h5 as a second live RTU (currently powered off by default)
+- Capture tshark/Wireshark dump during scenario 2 for the A0 poster packet diagram
+- Verify plc2 (PLC-PUMP2) as a second live attack target
 - Write final report sections with rubric mapping
-- Second run of scenario 3 against a resource-limited container or real embedded device if available
+- Measure actual flood rate numbers from V2 threaded scenario 3 run
 
 ---
 
 ## Notes for the final report and A0 poster
 
 **Key numbers to cite:**
-- Scenario 2 attack time: under 1 second from connect to confirmed coil state change
+- Scenario 2 attack time: under 1 second from connect to confirmed valve state change
 - Scenario 2 frame size: 12 bytes (the smallest meaningful Modbus write)
-- Scenario 3 flood rate: 3,623 req/s peak
-- Scenario 3 legitimate poll result: 17/17 success — cite the embedded RTU failure threshold (200-500 req/s from Dragos/Claroty research) to contextualise why 3,623 would be devastating on real hardware
+- Scenario 3: 300 threads, 150 registers/request — cite the embedded PLC failure threshold (200-500 req/s from Dragos/Claroty research) to contextualise the real-world impact
+- Scenario 3 legitimate poll result from V1 baseline: 17/17 success at 3,623 req/s (single-threaded async) — V2 threaded flood expected to significantly exceed this
 
 **MITRE ATT&CK for ICS references:**
 - T0861 (Point & Tag Identification) — scenario 1
@@ -230,7 +268,7 @@ python3 attacks/scenario3_dos.py --target 10.0.0.2 --port 5502 --duration 30
 
 **Protocol-level talking points for poster:**
 - Modbus has no authentication, no encryption, no session layer
-- FC5 Write Single Coil: 12-byte frame, immediate effect, no RTU-side logging
-- The breaker trip command is physically identical to a legitimate SCADA command — the RTU cannot distinguish them
+- FC5 Write Single Coil: 12-byte frame, immediate effect, no PLC-side logging
+- The pump valve trip command is physically identical to a legitimate SCADA command — the PLC cannot distinguish them
 
-**Real-world precedent:** Ukraine 2015 BlackEnergy attack used Modbus command injection against substations. Caused 6-hour outages for 230,000 customers. The protocol-level technique is identical to scenario 2.
+**Real-world precedent:** Ukraine 2015 BlackEnergy attack used Modbus command injection against substations. Caused 6-hour outages for 230,000 customers. The protocol-level technique is identical to scenario 2. For water treatment context: Oldsmar Florida 2021 — attacker raised NaOH (lye) concentration 111x via SCADA before operator caught it.
