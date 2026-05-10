@@ -174,18 +174,32 @@ c.close()
 
 ### Scenario 3 -- DoS Flood
 
-```
-mininet> ews01 python3 attacks/scenario3_dos_flood.py --target 10.0.0.2 --port 5502 --threads 300 --duration 30
-```
-
-Launches 300 threads, each sending FC03 reads of 150 registers in a tight loop. Prints a live counter of requests sent and errors every 2 seconds. On connection error, each thread reconnects automatically.
-
-For a distributed DoS, launch from multiple hosts simultaneously:
+Start the scenario 3 server on plc1 first (or use `servers/modbus_server.py`):
 
 ```
-mininet> ews01 python3 attacks/scenario3_dos_flood.py --threads 100 --duration 30 &
-mininet> ews02 python3 attacks/scenario3_dos_flood.py --threads 100 --duration 30 &
-mininet> ews03 python3 attacks/scenario3_dos_flood.py --threads 100 --duration 30
+mininet> plc1 python3 servers/scenario3_server.py &
+```
+
+Launch the flood from ews01 (hardcoded to 10.0.0.2:5502, 300 threads, press Enter to stop):
+
+```
+mininet> ews01 python3 attacks/scenario3_flood.py
+```
+
+Launches 300 persistent threads, each sending FC03 reads of 150 registers in a tight loop. Reconnects automatically on any error.
+
+Monitor the impact on SCADA using the legitimate polling client:
+
+```
+mininet> scada01 python3 clients/scenario3_client.py
+```
+
+For a distributed DoS, launch from all three attacker hosts simultaneously:
+
+```
+mininet> ews01 python3 attacks/scenario3_flood.py &
+mininet> ews02 python3 attacks/scenario3_flood.py &
+mininet> ews03 python3 attacks/scenario3_flood.py
 ```
 
 ---
@@ -199,6 +213,8 @@ The `mitigations/` directory contains working defences against each attack scena
 | 1 | IP Allowlisting | `mitigation1_ip_allowlist.py` | iptables on plc1 | Unauthorised hosts reaching port 5502 |
 | 2 | Function Code Filter | `mitigation2_fc_filter.py` | Modbus proxy inspects FC byte | Write commands (FC05/06/0F/10) |
 | 3 | Rate Limiting | `mitigation3_rate_limit.py` | Per-IP sliding window + timeout | DoS floods exceeding N req/s |
+| S3-A | IP + MAC Whitelist (Scenario 3) | `scenario3_serverwhite.py` | iptables IP+MAC pair on plc1 | All non-whitelisted connections at kernel level |
+| S3-B | Connection Rate Limiter (Scenario 3) | `scenario3_ratelimit.py` | TCP proxy, 2 conn/s per IP sliding window | Flood connections before they reach Modbus server |
 
 ### Run all three demos end-to-end
 
@@ -242,9 +258,18 @@ python3 servers/modbus_server.py
 python3 mitigations/mitigation3_rate_limit.py \
     --listen-port 5503 --upstream 127.0.0.1:5502 \
     --threshold 100 --timeout 20
+```
 
-# Terminal 3 -- flood through proxy (will be throttled)
-python3 attacks/scenario3_dos_flood.py --target 127.0.0.1 --port 5503 --threads 50
+### Scenario 3 mitigations -- IP + MAC whitelist and connection rate limiter
+
+See `playbooks/scenario3_playbook.md` for full step-by-step instructions. Quick reference:
+
+```
+# IP + MAC whitelist (update ALLOWED_MACS in the file each Mininet session first)
+mininet> plc1 python3 mitigations/scenario3_serverwhite.py &
+
+# Connection rate-limiting proxy (internal Modbus server on port 5020, proxy on 5502)
+mininet> plc1 python3 mitigations/scenario3_ratelimit.py &
 ```
 
 ---
@@ -285,23 +310,28 @@ ot-security-testbed/
 +-- topology/
 |   +-- mininet_topo.py           Mininet topology (interactive CLI mode)
 +-- servers/
-|   +-- modbus_server.py          pymodbus 3.12 async Modbus TCP server (plc1)
+|   +-- modbus_server.py          pymodbus 3.12 async Modbus TCP server (plc1, main)
+|   +-- scenario3_server.py       Scenario 3 base server (no mitigations)
++-- clients/
+|   +-- scenario3_client.py       Legitimate SCADA polling client with timing output
 +-- attacks/
 |   +-- scenario1_recon.py        FC01/02/03/04 register enumeration
 |   +-- scenario2_command_injection.py  FC05 pump valve write
-|   +-- scenario3_dos_flood.py    Threaded FC03 flood (300 threads default)
+|   +-- scenario3_flood.py        300-thread FC03 flood (hardcoded 10.0.0.2:5502)
 +-- mitigations/
-|   +-- mitigation1_ip_allowlist.py  iptables allowlist on plc1
-|   +-- mitigation2_fc_filter.py     Proxy: blocks write FCs, allows reads
-|   +-- mitigation3_rate_limit.py    Proxy: per-IP sliding window rate limiter
-|   +-- run_mitigations_demo.py      Mininet demo: all 3 mitigations before/after
+|   +-- mitigation1_ip_allowlist.py    iptables allowlist on plc1
+|   +-- mitigation2_fc_filter.py       Proxy: blocks write FCs, allows reads
+|   +-- mitigation3_rate_limit.py      Proxy: per-IP sliding window rate limiter
+|   +-- scenario3_serverwhite.py       Scenario 3: IP + MAC whitelist via iptables
+|   +-- scenario3_ratelimit.py         Scenario 3: TCP proxy, 2 conn/s per IP limit
+|   +-- run_mitigations_demo.py        Mininet demo: all 3 mitigations before/after
 +-- configs/
 |   +-- suricata/
 |       +-- ot-modbus.rules       Suricata IDS rules for plc1 monitoring
 +-- playbooks/
 |   +-- scenario1_playbook.md
 |   +-- scenario2_playbook.md
-|   +-- scenario3_playbook.md
+|   +-- scenario3_playbook.md     Full DoS playbook with both mitigations
 +-- results/                      Sample output from a confirmed run
 ```
 
